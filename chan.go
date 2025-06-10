@@ -68,7 +68,7 @@ func (p *ChanWorkerPool) Do(f Job) error {
 	case p.jobs <- f:
 		return nil
 	case <-p.closed:
-		return errors.New("worker pool is closed")
+		return errors.New("worker pool closed")
 	}
 }
 

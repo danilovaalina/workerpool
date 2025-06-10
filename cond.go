@@ -2,6 +2,7 @@ package workerpool
 
 import (
 	"container/list"
+	"errors"
 	"sync"
 )
 
@@ -38,13 +39,19 @@ func NewCondWorkerPool(opts ...CondWorkerPoolOption) *CondWorkerPool {
 	return p
 }
 
-func (p *CondWorkerPool) Do(f Job) {
+func (p *CondWorkerPool) Do(f Job) error {
 	p.cond.L.Lock()
 	defer p.cond.L.Unlock()
+
+	if p.closed {
+		return errors.New("worker pool closed")
+	}
 
 	p.queue.PushBack(f)
 
 	p.cond.Signal()
+
+	return nil
 }
 
 func (p *CondWorkerPool) CloseAndWait() {

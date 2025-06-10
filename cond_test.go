@@ -2,6 +2,7 @@ package workerpool_test
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/danilovaalina/workerpool"
@@ -16,21 +17,21 @@ func TestCondWorkerPool(t *testing.T) {
 	defer wp.CloseAndWait()
 
 	var (
-		wg   sync.WaitGroup
-		data []int
+		wg    sync.WaitGroup
+		value atomic.Int64
 	)
 
 	wg.Add(100)
-	for i := range 100 {
+	for range 100 {
 		wp.Do(func() {
 			defer wg.Done()
-			data = append(data, i)
+			value.Add(1)
 		})
 	}
 
 	wg.Wait()
 
-	require.Equal(t, 100, len(data))
+	require.Equal(t, int64(100), value.Load())
 }
 
 func TestCondWorkerPool_WithBatchSize(t *testing.T) {
@@ -41,83 +42,61 @@ func TestCondWorkerPool_WithBatchSize(t *testing.T) {
 	defer wp.CloseAndWait()
 
 	var (
-		wg   sync.WaitGroup
-		data []int
+		wg    sync.WaitGroup
+		value atomic.Int64
 	)
 
 	wg.Add(100)
-	for i := range 100 {
+	for range 100 {
 		go wp.Do(func() {
 			defer wg.Done()
-			data = append(data, i)
+			value.Add(1)
 		})
 	}
 
 	wg.Wait()
 
-	require.Equal(t, 100, len(data))
+	require.Equal(t, int64(100), value.Load())
 }
 
-func BenchmarkCondWorkerPool_OneWorker(b *testing.B) {
-	wp := workerpool.NewCondWorkerPool()
+func TestCondWorkerPool_ClosedPool(t *testing.T) {
+	t.Parallel()
+
+	wp := workerpool.NewChanWorkerPool()
 	wp.IncWorkers(1)
-	defer wp.CloseAndWait()
+	wp.CloseAndWait()
 
-	var wg sync.WaitGroup
-
-	b.ResetTimer()
-	wg.Add(b.N)
-	for range b.N {
-		go wp.Do(wg.Done)
-	}
-
-	wg.Wait()
+	err := wp.Do(func() {})
+	require.Errorf(t, err, "worker pool closed")
 }
 
-func BenchmarkCondWorkerPool_OneWorkerWithBatchProcessing(b *testing.B) {
-	wp := workerpool.NewCondWorkerPool(workerpool.WithBatchSize(10))
-	wp.IncWorkers(1)
-	defer wp.CloseAndWait()
-
-	var wg sync.WaitGroup
-
-	b.ResetTimer()
-	wg.Add(b.N)
-	for range b.N {
-		go wp.Do(wg.Done)
+func BenchmarkCondWorkerPool(b *testing.B) {
+	tests := []struct {
+		name string
+		n    int
+		size int
+	}{
+		{"OneWorker", 1, 0},
+		{"OneWorkerWithBatchProcessing", 1, 10},
+		{"FewWorkers", 4, 0},
+		{"FewWorkersWithBatchProcessing", 4, 10},
 	}
 
-	wg.Wait()
-}
+	for _, test := range tests {
+		b.Run(test.name, func(b *testing.B) {
+			wp := workerpool.NewCondWorkerPool(workerpool.WithBatchSize(test.size))
+			wp.IncWorkers(test.n)
+			defer wp.CloseAndWait()
 
-func BenchmarkCondWorkerPool_FewWorkers(b *testing.B) {
-	wp := workerpool.NewCondWorkerPool()
-	wp.IncWorkers(4)
-	defer wp.CloseAndWait()
+			var wg sync.WaitGroup
 
-	var wg sync.WaitGroup
+			b.ResetTimer()
+			wg.Add(b.N)
+			for range b.N {
+				go wp.Do(wg.Done)
+			}
 
-	b.ResetTimer()
-	wg.Add(b.N)
-	for range b.N {
-		go wp.Do(wg.Done)
+			wg.Wait()
+		})
 	}
-
-	wg.Wait()
-}
-
-func BenchmarkCondWorkerPool_FewWorkersWithBatchProcessing(b *testing.B) {
-	wp := workerpool.NewCondWorkerPool(workerpool.WithBatchSize(10))
-	wp.IncWorkers(4)
-	defer wp.CloseAndWait()
-
-	var wg sync.WaitGroup
-
-	b.ResetTimer()
-	wg.Add(b.N)
-	for range b.N {
-		go wp.Do(wg.Done)
-	}
-
-	wg.Wait()
 }
